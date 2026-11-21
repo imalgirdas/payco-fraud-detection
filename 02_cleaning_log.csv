@@ -1,0 +1,26 @@
+table,rule,rows_affected
+payment_attempts,exact duplicate rows removed,984
+payouts,exact duplicate rows removed,35
+users,"country_code trimmed, upper-cased, ISO-3 mapped to ISO-2",664
+users,country_code not in countries table,0
+users,signup_at in DD/MM/YYYY parsed to date (time set to 00:00),514
+users,signup_at still unparsed,0
+users,missing age_band set to 'unknown',8227
+devices,missing os set to 'unknown',2951
+fx_rates,weekend / holiday rates filled forward from last business day,3132
+transactions,total_amount not equal to sum of components (0 or 100x) recomputed,190
+transactions,missing ip_country set to 'unknown',13134
+transactions,missing session_minutes kept as NA (imputed in 03_features.R),6567
+payment_attempts,payment_method labels standardised,5340
+payment_attempts,payment_method not recognised,0
+payment_attempts,duplicate attempt_id left after label fix removed,81
+payment_attempts,negative latency_ms set to NA,60
+payment_attempts,"latency_ms above 120,000 (impossible) set to NA",25
+payment_attempts,latency_ms missing in source,10649
+shipments,delivered_at before shipped_at (clock skew) set to NA,604
+refunds,amount with comma decimal mark converted to number,193
+chargebacks,opened_at before the transaction set to NA (back-dated entry),8
+fraud_labels,duplicate transaction_id,0
+support_tickets,csat_score missing (not answered),23575
+payment_attempts,rows without EUR amount after FX join,0
+transactions,rows without EUR amount after FX join,0
