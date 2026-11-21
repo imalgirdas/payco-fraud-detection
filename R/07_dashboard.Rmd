@@ -1,0 +1,541 @@
+---
+title: "Payco Payments Data Science Dashboard 2021-2025"
+output:
+  html_document:
+    self_contained: true
+    theme: default
+    toc: false
+    fig_retina: 2
+    df_print: kable
+---
+
+<!--
+-----------------------------------------------------------------------------
+Script:   07_dashboard.Rmd
+Purpose:  Five-page static HTML dashboard with a navigation menu:
+          payments overview, fraud patterns, fraud model, payment failure,
+          buyer churn. Each chart is followed by a short written result
+          calculated from the data, so the text updates if the data changes.
+
+Input:    Output/03_features.rds, Output/04_*.rds, Output/05_*.rds,
+          Output/06_*.rds, 00_theme.R
+Output:   07_dashboard.html (Knit in RStudio, or render from 08_run_all.R)
+-----------------------------------------------------------------------------
+-->
+
+```{r setup, include = FALSE}
+# Packages --------------------------------------------------------------------
+pkgs <- c("dplyr", "tidyr", "lubridate", "ggplot2", "scales", "forcats", "htmltools", "rmarkdown", "knitr")
+missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+if (length(missing) > 0) install.packages(missing)
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(lubridate)
+  library(ggplot2)
+  library(scales)
+  library(forcats)
+  library(htmltools)
+})
+
+theme_file <- if (file.exists("R/00_theme.R")) "R/00_theme.R" else "00_theme.R"
+source(theme_file)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 11, fig.height = 6, dpi = 150, fig.align = "center",
+                      dev = if (requireNamespace("ragg", quietly = TRUE)) "ragg_png" else "png")
+
+# Data ------------------------------------------------------------------------
+feat <- readRDS("Output/03_features.rds")
+ex   <- readRDS("Output/04_explore_results.rds")
+c4   <- readRDS("Output/04_charts.rds")
+fm   <- readRDS("Output/05_fraud_model.rds")
+c5   <- readRDS("Output/05_charts.rds")
+m6   <- readRDS("Output/06_models.rds")
+c6   <- readRDS("Output/06_charts.rds")
+
+k   <- feat$kpi_year %>% filter(year <= 2025)
+ly  <- max(k$year); fy <- min(k$year)
+cur <- k %>% filter(year == ly)
+prv <- k %>% filter(year == ly - 1)
+fst <- k %>% filter(year == fy)
+
+# Formatting helpers ----------------------------------------------------------
+pc   <- function(x, d = 1) paste0(formatC(100 * x, format = "f", digits = d), "%")
+pp   <- function(x, d = 1) paste0(ifelse(x >= 0, "+", ""), formatC(100 * x, format = "f", digits = d), " pp")
+chg  <- function(x, d = 1) paste0(ifelse(x >= 0, "+", ""), formatC(100 * x, format = "f", digits = d), "%")
+num  <- function(x) format(round(x), big.mark = ",", trim = TRUE)
+eur  <- function(x) fmt_eur(x)
+f2   <- function(x) formatC(x, format = "f", digits = 2)
+feature_labels <- c(items_viewed_session = "items viewed in the session", session_minutes = "session length",
+                    device_age_days = "device age", account_age_days = "account age", risk_score = "legacy risk score",
+                    log_amount_eur = "order amount", ip_mismatch = "IP country mismatch", seller_age_days = "seller account age",
+                    recency_days = "days since last purchase", txns_60d = "purchases in the last 60 days",
+                    tenure_days = "tenure", trend_60_vs_180 = "recent activity trend", txns_total = "total purchases",
+                    txns_365d = "purchases in the last year", card_added_days_ago = "card age",
+                    device_other_accounts = "other accounts on the device", new_device = "new device")
+nice <- function(x) ifelse(x %in% names(feature_labels), feature_labels[x], gsub("_", " ", x))
+
+# KPI cards -------------------------------------------------------------------
+# Arrow shows the direction of change, colour shows whether it is good news
+kpi_card <- function(label, value, delta = NULL, good = NA, dir = NA) {
+  delta_class <- paste(if (is.na(dir)) "" else if (dir) "up" else "down",
+                       if (is.na(good)) "neutral" else if (good) "good" else "bad")
+  delta_tag <- if (!is.null(delta)) tags$div(class = paste("kpi-delta", delta_class), delta)
+  tags$div(class = "kpi-card", tags$div(class = "kpi-label", label),
+           tags$div(class = "kpi-value", value), delta_tag)
+}
+kpi_row <- function(...) tags$div(class = "kpi-row", ...)
+# higher_is_good = FALSE for rates like fraud, where a fall is good news
+delta_txt <- function(now, before, type = "pct", higher_is_good = TRUE) {
+  d <- if (type == "pct") now / before - 1 else now - before
+  list(text = paste(if (type == "pct") chg(d) else pp(d), "vs", ly - 1),
+       good = if (higher_is_good) d >= 0 else d <= 0, dir = d >= 0)
+}
+```
+
+```{r facts, include = FALSE}
+# Page 1 facts ---------------------------------------------------------------
+gmv_cagr   <- (cur$gmv_eur / fst$gmv_eur)^(1 / (ly - fy)) - 1
+worst_appr <- k %>% slice_min(approval_rate, n = 1)
+best_appr  <- k %>% slice_max(approval_rate, n = 1)
+peak_fraud <- k %>% slice_max(fraud_rate, n = 1)
+mix        <- feat$method_year
+share_of   <- function(m, y) mix %>% filter(payment_method == m, year == y) %>% pull(share) %>% { if (length(.)) . else 0 }
+ts         <- ex$target_summary %>% filter(year <= 2025) %>% group_by(target) %>%
+  summarise(rate = sum(positives) / sum(rows), ratio = (sum(rows) - sum(positives)) / sum(positives))
+ts_fraud   <- ts %>% filter(grepl("Fraud", target))
+ts_fail    <- ts %>% filter(grepl("failure", target))
+ts_churn   <- ts %>% filter(grepl("churn", target))
+
+# Page 2 facts ---------------------------------------------------------------
+fmon       <- ex$fraud_month %>% filter(mature)
+peak_m     <- fmon %>% slice_max(fraud_rate, n = 1)
+base_2021  <- fmon %>% filter(year(month) == 2021) %>% summarise(r = mean(fraud_rate)) %>% pull(r)
+fb         <- ex$fraud_buckets
+fb_rate    <- function(feature_, bucket_) fb %>% filter(feature == feature_, bucket == bucket_) %>% pull(rate)
+young_rate <- fb_rate("Account age", "< 7 days")
+old_rate   <- fb_rate("Account age", "1 year +")
+shared_r   <- fb_rate("Device", "Shared with other accounts")
+own_r      <- fb_rate("Device", "Own device")
+mf         <- ex$method_fraud
+mf_rate    <- function(m, y) mf %>% filter(payment_method == m, year == y) %>% pull(rate) %>% { if (length(.)) . else NA }
+top_feat   <- ex$fraud_auc %>% slice_head(n = 3)
+psi_max    <- ex$psi %>% slice_max(psi, n = 1)
+
+# Page 3 facts ---------------------------------------------------------------
+mt      <- fm$metrics
+m_rf    <- mt %>% filter(model == "Random forest")
+m_lr    <- mt %>% filter(model == "Logistic regression")
+m_old   <- mt %>% filter(model == "Legacy risk score")
+champ   <- mt %>% filter(model != "Legacy risk score") %>% slice_max(pr_auc, n = 1)
+tv      <- fm$test_value
+imp3    <- fm$importance %>% slice_head(n = 3) %>% pull(feature) %>% nice()
+lift1   <- fm$lift %>% filter(decile == 1)
+mon     <- fm$monthly
+weak_m  <- mon %>% filter(frauds >= 10) %>% slice_min(pr_auc_rf, n = 1)
+
+# Page 4 facts ---------------------------------------------------------------
+dmy_tab   <- ex$decline_method_year
+fail_rate <- function(m, y) dmy_tab %>% filter(payment_method == m, year == y) %>% pull(fail_rate) %>% { if (length(.)) . else NA }
+out_peak  <- ex$outage %>% filter(psp == "psp_beta") %>% slice_max(error_rate, n = 1)
+out_norm  <- ex$outage %>% filter(psp == "psp_alpha") %>% summarise(r = mean(error_rate)) %>% pull(r)
+dom       <- ex$day_of_month
+eom_ratio <- mean(dom$fail_rate[dom$day_of_month >= 22]) / mean(dom$fail_rate[dom$day_of_month < 22])
+dr        <- ex$decline_reasons %>% filter(decline_code == "insufficient_funds")
+fr        <- m6$failure
+fr_best   <- fr$metrics %>% slice_max(pr_auc, n = 1)
+fr_d1     <- fr$deciles %>% filter(decile == 1)
+fr_d10    <- fr$deciles %>% filter(decile == 10)
+
+# Page 5 facts ---------------------------------------------------------------
+cb        <- ex$churn_buckets
+cb_rate   <- function(feature_, bucket_) cb %>% filter(feature == feature_, bucket == bucket_) %>% pull(rate)
+ch        <- m6$churn
+ch_best   <- ch$metrics %>% slice_max(roc_auc, n = 1)
+ch_d1     <- ch$deciles %>% filter(decile == 1)
+ch_d10    <- ch$deciles %>% filter(decile == 10)
+ch_imp    <- ch$importance %>% slice_head(n = 3) %>% pull(feature) %>% nice()
+svc_feat  <- "Service experience (buyers with 1-2 purchases)"
+svc_bad   <- cb_rate(svc_feat, "Lost parcel, NAD claim or low CSAT")
+svc_ok    <- cb_rate(svc_feat, "No service issue")
+```
+
+```{css, echo = FALSE}
+:root { --teal: #0E9F9A; --teal-dark: #08736F; --navy: #0B1F3A; --navy-mid: #27466E;
+        --grey: #55606E; --line: #DDE3E9; --pale: #E3F4F3; --alert: #E4572E; }
+body { background: #FFFFFF; color: var(--navy); font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+       font-size: 15px; line-height: 1.55; }
+.main-container { max-width: 1240px; padding: 0 20px; }
+.title { display: none; }
+.dash-header { background: var(--navy); color: #FFFFFF; margin: 0 -20px 0 -20px; padding: 22px 28px 18px;
+               border-bottom: 4px solid var(--teal); }
+.dash-header h1 { margin: 0; font-size: 26px; font-weight: 700; color: #FFFFFF; }
+.dash-header h1 span { color: #7FD1CC; }
+.dash-header p { margin: 4px 0 0; color: #C9D3DE; font-size: 14px; }
+
+/* Navigation menu */
+.nav-tabs, .nav-pills { position: sticky; top: 0; z-index: 1000; background: var(--navy-mid);
+  margin: 0 -20px 26px -20px; padding: 6px 20px; border: none; }
+.nav-pills > li > a, .nav-tabs > li > a { color: #FFFFFF; font-weight: 600; border-radius: 4px;
+  padding: 9px 16px; margin-right: 4px; border: none; background: transparent; }
+.nav-pills > li > a:hover, .nav-tabs > li > a:hover { background: #3A5C88; color: #FFFFFF; }
+.nav-pills > li.active > a, .nav-pills > li.active > a:hover, .nav-pills > li.active > a:focus,
+.nav-tabs > li.active > a, .nav-tabs > li.active > a:hover, .nav-tabs > li.active > a:focus {
+  background: var(--teal); color: #FFFFFF; border: none; }
+
+h3 { font-size: 20px; font-weight: 700; color: var(--navy); border-left: 5px solid var(--teal);
+     padding-left: 10px; margin: 30px 0 12px; }
+.page-intro { color: var(--grey); margin: -6px 0 18px; }
+
+/* KPI cards */
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin: 6px 0 22px; }
+.kpi-card { background: #FFFFFF; border: 1px solid var(--line); border-top: 4px solid var(--teal);
+            border-radius: 6px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.kpi-label { color: var(--grey); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.kpi-value { font-size: 28px; font-weight: 700; color: var(--navy); line-height: 1.25; margin-top: 4px; }
+.kpi-delta { font-size: 13px; font-weight: 600; margin-top: 2px; color: var(--grey); }
+.kpi-delta.up::before { content: "\25B2  "; }
+.kpi-delta.down::before { content: "\25BC  "; }
+.kpi-delta.good { color: var(--teal-dark); }
+.kpi-delta.bad { color: var(--alert); }
+
+/* Charts, tables and results */
+p > img { border: 1px solid var(--line); border-radius: 6px; padding: 6px; background: #FFFFFF; }
+img { max-width: 100%; height: auto; }
+.insight { background: var(--pale); border-left: 5px solid var(--teal); border-radius: 4px;
+           padding: 12px 16px; margin: 10px 0 34px; color: var(--navy); }
+.insight p { margin: 0; }
+table { font-size: 14px; margin-bottom: 10px; }
+thead th { background: var(--navy); color: #FFFFFF; }
+.method { color: var(--grey); font-size: 14px; border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; margin-bottom: 22px; }
+.footer { color: var(--grey); font-size: 12px; border-top: 1px solid var(--line); margin-top: 30px; padding: 12px 0 30px; }
+```
+
+```{r header}
+tags$div(class = "dash-header",
+         tags$h1(HTML("payco <span>payments</span> data science")),
+         tags$p(sprintf("Synthetic C2C marketplace data, %d-%d | %s checkouts | %s paid volume | Models tested on %d",
+                        fy, ly, num(sum(k$checkouts)), eur(sum(k$gmv_eur)), ly)))
+```
+
+# {.tabset .tabset-pills}
+
+## 1. Payments overview
+
+<p class="page-intro">How much money moves through Payco, how often payments succeed, and the three targets the models predict.</p>
+
+```{r}
+d_chk <- delta_txt(cur$checkouts, prv$checkouts)
+d_gmv <- delta_txt(cur$gmv_eur, prv$gmv_eur)
+d_apr <- delta_txt(cur$approval_rate, prv$approval_rate, "pp")
+d_frd <- delta_txt(cur$fraud_rate, prv$fraud_rate, "pp", higher_is_good = FALSE)
+d_cbk <- delta_txt(cur$chargeback_rate, prv$chargeback_rate, "pp", higher_is_good = FALSE)
+kpi_row(
+  kpi_card(paste("Checkouts", ly), num(cur$checkouts), d_chk$text, d_chk$good, d_chk$dir),
+  kpi_card("Paid volume", eur(cur$gmv_eur), d_gmv$text, d_gmv$good, d_gmv$dir),
+  kpi_card("Attempt approval rate", pc(cur$approval_rate), d_apr$text, d_apr$good, d_apr$dir),
+  kpi_card("Fraud rate", pc(cur$fraud_rate, 2), d_frd$text, d_frd$good, d_frd$dir),
+  kpi_card("Chargeback rate", pc(cur$chargeback_rate, 2), d_cbk$text, d_cbk$good, d_cbk$dir)
+)
+```
+
+### Yearly payment KPIs
+
+```{r, fig.height = 6.5}
+k_long <- k %>%
+  transmute(year, `Checkouts` = checkouts, `Paid volume (EUR)` = gmv_eur,
+            `Attempt approval rate` = approval_rate, `Fraud rate` = fraud_rate) %>%
+  pivot_longer(-year) %>%
+  mutate(name = factor(name, levels = c("Checkouts", "Paid volume (EUR)", "Attempt approval rate", "Fraud rate")),
+         label = case_when(name == "Checkouts" ~ num(value),
+                           name == "Paid volume (EUR)" ~ eur(value),
+                           name == "Fraud rate" ~ pc(value, 2),
+                           TRUE ~ pc(value)))
+ggplot(k_long, aes(year, value)) +
+  geom_line(colour = pay$teal) + geom_point(colour = pay$teal, size = 2.4) +
+  geom_text(aes(label = label), vjust = -1, size = 3.1) +
+  facet_wrap(~ name, scales = "free_y", ncol = 2) +
+  scale_y_continuous(expand = expansion(mult = c(0.15, 0.3)), labels = NULL) +
+  labs(title = "Checkouts dip in 2023, then grow fast; approval and fraud move with events",
+       subtitle = "Key payment indicators by year", x = NULL, y = NULL, caption = chart_caption) +
+  theme(panel.grid.major.y = element_blank(), axis.line.x = element_blank())
+```
+
+::: insight
+**Results.** Paid volume grew from `r eur(fst$gmv_eur)` in `r fy` to `r eur(cur$gmv_eur)` in `r ly`, a compound growth rate of `r pc(gmv_cagr)` a year. The approval rate was lowest in `r worst_appr$year` (`r pc(worst_appr$approval_rate)`), when stricter 3DS checks and a PSP outage added friction, and highest in `r best_appr$year` (`r pc(best_appr$approval_rate)`). Fraud peaked in `r peak_fraud$year` at `r pc(peak_fraud$fraud_rate, 2)` of paid transactions during the account takeover wave.
+:::
+
+### Payment method mix
+
+```{r, fig.height = 5.5}
+mix %>%
+  mutate(payment_method = fct_reorder(payment_method, share, .fun = mean, .desc = TRUE)) %>%
+  ggplot(aes(factor(year), share, fill = payment_method)) +
+  geom_col(width = 0.7, colour = "white", linewidth = 0.3) +
+  scale_fill_payco() +
+  scale_y_continuous(labels = fmt_pct, expand = expansion(mult = c(0, 0.02))) +
+  labs(title = "Cards lose ground to wallets and BNPL",
+       subtitle = "Share of paid transactions by final payment method", x = NULL, y = NULL, caption = chart_caption) +
+  theme(legend.position = "right")
+```
+
+::: insight
+**Results.** Cards fell from `r pc(share_of("card", fy))` of paid transactions in `r fy` to `r pc(share_of("card", ly))` in `r ly`, while wallets rose from `r pc(share_of("wallet", fy))` to `r pc(share_of("wallet", ly))`. BNPL launched in 2024 and reached `r pc(share_of("bnpl", ly))` in `r ly`. A fraud model trained only on card-heavy years must cope with this shift.
+:::
+
+### The three modelling targets
+
+```{r, fig.height = 5}
+c4$target_rates
+```
+
+::: insight
+**Results.** Fraud is rare: `r pc(ts_fraud$rate, 2)` of paid transactions, about one fraud for every `r num(ts_fraud$ratio)` legitimate ones, so accuracy is useless as a metric and PR-AUC is used instead. Payment failure affects `r pc(ts_fail$rate)` of attempts, and `r pc(ts_churn$rate, 0)` of active buyers make no purchase in the following 180 days.
+:::
+
+<div class="method">
+**Method.** All models use a time-based split: train on earlier periods, test on the latest one, never a random split. Features only use information available at the moment of prediction (for example, accounts seen on a device *before* the checkout). Columns known only afterwards, such as refunds, chargebacks, account status and the 3DS result for failure prediction, are excluded.
+</div>
+
+## 2. Fraud patterns
+
+<p class="page-intro">When fraud happens, where it hides, and which signals separate it from normal buying.</p>
+
+### Fraud rate over time
+
+```{r, fig.height = 5.5}
+c4$fraud_month
+```
+
+::: insight
+**Results.** In `r fy` about `r pc(base_2021, 2)` of paid transactions were fraud. The account takeover wave pushed the monthly rate to `r pc(peak_m$fraud_rate, 2)` in `r format(peak_m$month, "%B %Y")`, about `r round(peak_m$fraud_rate / base_2021, 1)` times the `r fy` level. The drop in the last months of `r ly` is not good news: those labels are not mature yet, because chargebacks and reviews take weeks. These months are excluded from model evaluation.
+:::
+
+### Fraud rate by risk signal
+
+```{r, fig.height = 6}
+c4$fraud_buckets
+```
+
+::: insight
+**Results.** Accounts less than a week old have a fraud rate of `r pc(young_rate, 1)`, against `r pc(old_rate, 2)` for accounts older than a year. Devices already used by other accounts are a strong ring signal: `r pc(shared_r, 1)` fraud against `r pc(own_r, 2)` on a buyer's own device. These features are built without look-ahead, counting only accounts seen on the device before each checkout.
+:::
+
+### Fraud by payment method
+
+```{r, fig.height = 5}
+c4$fraud_method_heatmap
+```
+
+::: insight
+**Results.** In 2022 card fraud reached `r pc(mf_rate("card", 2022), 2)`. By `r ly` the BNPL fraud rate (`r pc(mf_rate("bnpl", ly), 2)`) is `r ifelse(mf_rate("bnpl", ly) > mf_rate("card", ly), "above", "below")` the card rate (`r pc(mf_rate("card", ly), 2)`), as fraudsters follow the newest and least defended payment method. Payment method has to be in the model, and its effect is not constant over time.
+:::
+
+### Single-feature signal strength
+
+```{r, fig.height = 6.5}
+c4$fraud_feature_strength
+```
+
+::: insight
+**Results.** On their own, `r nice(top_feat$feature[1])`, `r nice(top_feat$feature[2])` and `r nice(top_feat$feature[3])` separate fraud best (Gini `r f2(top_feat$strength[1])`, `r f2(top_feat$strength[2])` and `r f2(top_feat$strength[3])`). Bots and fraudsters go straight to checkout. The population stability check between 2021-2024 and `r ly` shows the largest shift in `r nice(psi_max$feature)` (PSI `r f2(psi_max$psi)`, `r psi_max$verdict`), so the features themselves are fairly stable even when the fraud rate is not.
+:::
+
+## 3. Fraud model
+
+<p class="page-intro">Can a model beat the legacy rules engine? Trained on 2021-2024 and tested on January to September `r ly`.</p>
+
+```{r}
+kpi_row(
+  kpi_card("PR-AUC, best model", f2(champ$pr_auc), paste("Legacy score:", f2(m_old$pr_auc)), TRUE),
+  kpi_card("ROC-AUC, best model", f2(champ$roc_auc), paste("Legacy score:", f2(m_old$roc_auc)), TRUE),
+  kpi_card("Fraud caught", pc(tv$recall, 0), paste("reviewing", pc(tv$flagged_share), "of transactions"), NA),
+  kpi_card("Flags that are fraud", pc(tv$precision, 0), paste("vs", pc(m_old$precision_top, 0), "for legacy score"), TRUE),
+  kpi_card("Cost saving, test period", eur(tv$saving_eur), paste("of", eur(tv$cost_no_model), "fraud cost"), TRUE)
+)
+```
+
+### Precision and recall
+
+```{r, fig.height = 6}
+c5$pr_curve
+```
+
+::: insight
+**Results.** The `r tolower(champ$model)` reaches a PR-AUC of `r f2(champ$pr_auc)` on `r ly`, against `r f2(m_old$pr_auc)` for the legacy risk score. Random guessing would score `r formatC(m_rf$base_rate, format = "f", digits = 3)`, the fraud rate itself. `r if (abs(m_rf$pr_auc - m_lr$pr_auc) < 0.03) paste0("The random forest (", f2(m_rf$pr_auc), ") and logistic regression (", f2(m_lr$pr_auc), ") perform almost the same, so the gain comes from the engineered features, not from model complexity. The simpler, explainable model is a sensible choice for production.") else paste0("The random forest scores ", f2(m_rf$pr_auc), " and the logistic regression ", f2(m_lr$pr_auc), ".")`
+:::
+
+### ROC curves
+
+```{r, fig.width = 8, fig.height = 7.5}
+c5$roc_curve
+```
+
+::: insight
+**Results.** ROC-AUC is `r f2(m_rf$roc_auc)` for the random forest, `r f2(m_lr$roc_auc)` for logistic regression and `r f2(m_old$roc_auc)` for the legacy score. With fraud this rare, ROC-AUC flatters every model because true negatives dominate. That is why the precision-recall view above is the main measure.
+:::
+
+### What drives the model
+
+```{r, fig.height = 6.5}
+c5$importance
+```
+
+::: insight
+**Results.** The random forest relies most on `r imp3[1]`, `r imp3[2]` and `r imp3[3]`. These match the exploration on page 2, which is a good sign that the model has learned real behaviour and not noise. None of the top features are known only after the payment.
+:::
+
+### Choosing the review threshold
+
+```{r, fig.height = 6}
+c5$cost_curve
+```
+
+::: insight
+**Results.** The threshold was chosen on 2024, using a model trained on 2021-2023 so that the test year stays untouched. Reviewing a transaction costs EUR `r fm$costs[["review"]]` and a missed fraud costs its order value plus a EUR `r fm$costs[["chargeback_fee"]]` fee. The cheapest point flags `r pc(fm$best_threshold$flagged_share)` of transactions. Applied unchanged to `r ly`, it catches `r pc(tv$recall, 0)` of fraud (`r eur(tv$fraud_eur_caught)` of `r eur(tv$fraud_eur_total)`), and `r pc(tv$precision, 0)` of flagged transactions are fraud.
+:::
+
+### Lift by score decile
+
+```{r, fig.height = 5.5}
+c5$lift
+```
+
+::: insight
+**Results.** The top 10% of transactions by model score hold `r pc(lift1$cum_capture, 0)` of all fraud in the test period, `r round(lift1$lift, 1)` times the average rate. The month with the weakest PR-AUC was `r format(weak_m$month, "%B")` (`r f2(weak_m$pr_auc_rf)`), so a monthly monitoring report should watch for drift during new fraud waves.
+:::
+
+```{r}
+fm$confusion %>% mutate(n = num(n)) %>%
+  knitr::kable(col.names = c(paste("Outcome at the chosen threshold,", ly), "Transactions"), align = c("l", "r"))
+```
+
+## 4. Payment failure
+
+<p class="page-intro">Why payments fail, how outages show up, and whether a failed attempt can be predicted before it is sent.</p>
+
+```{r}
+d_fail <- delta_txt(1 - cur$approval_rate, 1 - prv$approval_rate, "pp", higher_is_good = FALSE)
+kpi_row(
+  kpi_card(paste("Failed attempts", ly), pc(1 - cur$approval_rate), d_fail$text, d_fail$good, d_fail$dir),
+  kpi_card("Technical error rate", pc(cur$error_rate, 2), NULL),
+  kpi_card("Failure model ROC-AUC", f2(fr_best$roc_auc), fr_best$model, NA),
+  kpi_card("Failure rate, riskiest 10%", pc(fr_d1$rate, 0), paste("vs", pc(fr_d10$rate, 0), "in the safest 10%"), NA)
+)
+```
+
+### Failure rate by payment method
+
+```{r, fig.height = 5.5}
+c4$fail_method_year
+```
+
+::: insight
+**Results.** In `r ly`, `r pc(fail_rate("card", ly))` of card attempts failed, against `r pc(fail_rate("wallet", ly))` for wallets and `r pc(fail_rate("bnpl", ly))` for BNPL, where the provider runs its own credit check. Wallets fail less because the card is already tokenised and authenticated on the phone. Cards and wallets had their worst year in 2023, when stricter 3DS rules added friction.
+:::
+
+### Decline reasons
+
+```{r, fig.height = 5.5}
+c4$decline_reasons
+```
+
+::: insight
+**Results.** Insufficient funds explains between `r pc(min(dr$share), 0)` and `r pc(max(dr$share), 0)` of failures each year. These are soft declines, so a retry later or with another method often works. 3DS abandonment grew in 2023, when step-up authentication was enforced more often.
+:::
+
+### PSP outage, March 2023
+
+```{r, fig.height = 5}
+c4$psp_outage
+```
+
+::: insight
+**Results.** On `r format(out_peak$day, "%d %B %Y")` psp_beta returned errors on `r pc(out_peak$error_rate, 0)` of attempts, while psp_alpha averaged `r pc(out_norm, 1)` that month. The failure model includes each PSP's error rate in the previous hour, which lets it react to an outage while it is happening. In 2024 smart retry routing was added so that such errors are retried on another PSP.
+:::
+
+### Month-end effect
+
+```{r, fig.height = 5}
+c4$fail_day_of_month
+```
+
+::: insight
+**Results.** From the 22nd of the month, insufficient-funds declines on cards are `r round(eom_ratio, 1)` times as common as earlier in the month, as balances run low before payday. Day of month is a simple, legitimate feature for the failure model.
+:::
+
+### Failure model
+
+```{r, fig.height = 6}
+c6$failure_importance
+```
+
+```{r, fig.height = 5.5}
+c6$failure_deciles
+```
+
+::: insight
+**Results.** On `r ly` attempts, the `r tolower(fr_best$model)` reaches ROC-AUC `r f2(fr_best$roc_auc)` and PR-AUC `r f2(fr_best$pr_auc)` (base rate `r pc(fr$rate_test)`). The riskiest 10% of attempts fail `r pc(fr_d1$rate, 0)` of the time, against `r pc(fr_d10$rate, 0)` for the safest 10%. Failure is harder to predict than fraud because the issuer's decision is mostly hidden from the merchant. Even so, the model can route risky attempts to a wallet prompt or a different PSP before they fail.
+:::
+
+## 5. Buyer churn
+
+<p class="page-intro">Which active buyers will stop buying in the next 180 days? Trained on snapshots from mid-2023 to end-2024 and tested on buyers active on 30 June `r ly`.</p>
+
+```{r}
+kpi_row(
+  kpi_card("Churn rate, test snapshot", pc(ch$rate_test, 0), paste(num(ch$n_test), "active buyers"), NA),
+  kpi_card("Churn model ROC-AUC", f2(ch_best$roc_auc), ch_best$model, NA),
+  kpi_card("Churn, riskiest 10%", pc(ch_d1$rate, 0), paste("vs", pc(ch_d10$rate, 0), "in the safest 10%"), NA),
+  kpi_card("Training rows", num(ch$n_train), "4 snapshots", NA)
+)
+```
+
+### Who churns
+
+```{r, fig.height = 6}
+c4$churn_buckets
+```
+
+::: insight
+**Results.** Buyers whose last purchase was 120-180 days ago churn `r pc(cb_rate("Days since last purchase", "120-180"), 0)` of the time, against `r pc(cb_rate("Days since last purchase", "< 30 days"), 0)` for those who bought in the last month. Comparing buyers with similar activity (1-2 purchases), a lost parcel, not-as-described claim or low CSAT raises churn from `r pc(svc_ok, 0)` to `r pc(svc_bad, 0)`. Without that control the effect disappears, because frequent buyers hit more problems and also churn less. This is a Simpson's paradox worth explaining in an interview.
+:::
+
+### Churn model
+
+```{r, fig.height = 6}
+c6$churn_importance
+```
+
+```{r, fig.height = 5.5}
+c6$churn_deciles
+```
+
+::: insight
+**Results.** The `r tolower(ch_best$model)` reaches ROC-AUC `r f2(ch_best$roc_auc)` on the June `r ly` snapshot. The top drivers are `r ch_imp[1]`, `r ch_imp[2]` and `r ch_imp[3]`: activity that is fading is the clearest warning. The riskiest decile churns `r pc(ch_d1$rate, 0)` of the time and the safest `r pc(ch_d10$rate, 0)`, which is enough to target a win-back campaign at buyers before they leave.
+:::
+
+### Model comparison
+
+```{r, fig.height = 6}
+c6$roc_curves
+```
+
+```{r}
+bind_rows(
+  fm$metrics %>% mutate(task = "Fraud"),
+  m6$metrics
+) %>%
+  transmute(Task = task, Model = model, `ROC-AUC` = f2(roc_auc), `PR-AUC` = f2(pr_auc),
+            `Base rate` = pc(base_rate, 2),
+            `Recall in top flagged` = paste0(pc(recall_top, 0), " (top ", pc(top_share, 0), ")")) %>%
+  knitr::kable(align = c("l", "l", "r", "r", "r", "r"))
+```
+
+::: insight
+**Results.** Across all three tasks, logistic regression and the random forest end up close to each other. The time-aware, leakage-safe features matter more than the choice of algorithm. Fraud is the most predictable target. Payment failure is the hardest, because most of the decision sits with the card issuer.
+:::
+
+<div class="footer">Data: Payco synthetic payments dataset (fictional C2C marketplace), `r fy`-`r ly`. Paid volume = order value of paid transactions in EUR at daily FX rates. Built with R, ggplot2, ranger and R Markdown.</div>
