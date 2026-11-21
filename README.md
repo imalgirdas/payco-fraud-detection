@@ -10,7 +10,7 @@
       <br>
       Between 2021 and 2025 the platform processed <strong>328,000 checkouts</strong> and <strong>356,000 payment attempts</strong>, worth <strong>€12.5 million</strong> in paid orders. The data covers users, devices, listings, transactions, payment attempts, 3-D Secure checks, declines, refunds, chargebacks, confirmed fraud cases, shipments, seller payouts and support tickets.<br>
       <br>
-      Working with the <strong>Payments Risk team</strong>, I built models to answer three questions. Can we catch fraud better than the current rules engine? Can we predict which payments will fail? Which buyers are about to stop buying? These were the main areas of focus:
+      I built models to answer three questions. Can we catch fraud better than the current rules engine? Can we predict which payments will fail? Which buyers are about to stop buying? These were the main areas of focus:
       <h3>Northstar Metrics</h3>
       <ul>
         <li><strong>Fraud:</strong> fraud rate, chargeback rate, fraud losses in euros, and the share of fraud caught for a given review workload.</li>
