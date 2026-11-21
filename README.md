@@ -1,6 +1,6 @@
 <h1 align="center">Payco: Fraud Detection and Payment Analytics</h1>
 <p align="center"><em>2021–2025 · R · tidyverse · ranger · ggplot2 · R Markdown</em></p>
-<p align="center"><sub>Payco is a fictional company. The dataset is synthetic and was built to mirror the payment patterns of a European second-hand marketplace. It contains no real customer or payment data.</sub></p>
+
 
 <table align="center">
   <tr>
