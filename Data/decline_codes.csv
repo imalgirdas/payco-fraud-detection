@@ -1,0 +1,15 @@
+decline_code,description,decline_category,hard_or_soft
+risk_blocked,Blocked by internal risk rules before reaching the PSP,risk,soft
+three_ds_failed,Cardholder failed 3-D Secure authentication,authentication,soft
+three_ds_abandoned,Cardholder did not complete the 3-D Secure challenge,authentication,soft
+processing_error,PSP or network technical error,technical,soft
+gateway_timeout,No response from PSP within 30 seconds,technical,soft
+insufficient_funds,Issuer: not enough funds,issuer,soft
+do_not_honor,Issuer: generic decline,issuer,soft
+expired_card,Issuer: card expired,issuer,hard
+incorrect_card_details,"Issuer: wrong card number, expiry or CVC",issuer,hard
+suspected_fraud,Issuer: suspected fraud,issuer,hard
+limit_exceeded,Issuer: credit or transaction limit exceeded,issuer,soft
+authorization_timeout,Bank transfer not authorised by the payer in time,payer,soft
+bnpl_rejected,BNPL provider declined the credit check,provider,hard
+insufficient_balance,Internal wallet balance too low,internal,soft

@@ -1,0 +1,23 @@
+country_code,country_name,currency,launch_date,region,bnpl_available_from
+FR,France,EUR,2016-01-01,Western Europe,2024-03-12
+DE,Germany,EUR,2016-01-01,Western Europe,2024-03-12
+LT,Lithuania,EUR,2016-01-01,Baltics,
+PL,Poland,PLN,2016-06-01,Central Europe,2024-03-12
+LV,Latvia,EUR,2017-06-01,Baltics,
+EE,Estonia,EUR,2017-06-01,Baltics,
+CZ,Czechia,CZK,2018-03-01,Central Europe,
+ES,Spain,EUR,2019-04-01,Southern Europe,2024-03-12
+BE,Belgium,EUR,2019-04-01,Western Europe,2024-03-12
+NL,Netherlands,EUR,2019-04-01,Western Europe,2024-03-12
+AT,Austria,EUR,2019-04-01,Western Europe,2024-03-12
+IT,Italy,EUR,2022-03-15,Southern Europe,2024-03-12
+PT,Portugal,EUR,2022-09-01,Southern Europe,
+SE,Sweden,SEK,2023-04-03,Nordics,2024-03-12
+DK,Denmark,DKK,2023-04-03,Nordics,2024-03-12
+HU,Hungary,HUF,2024-03-04,Central Europe,
+RO,Romania,RON,2024-03-04,Central Europe,
+SK,Slovakia,EUR,2024-03-04,Central Europe,
+GR,Greece,EUR,2025-02-03,Southern Europe,
+HR,Croatia,EUR,2025-02-03,Southern Europe,
+FI,Finland,EUR,2025-05-05,Nordics,2024-03-12
+IE,Ireland,EUR,2025-05-05,Western Europe,
