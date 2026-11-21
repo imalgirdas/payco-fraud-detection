@@ -1,0 +1,5 @@
+psp,psp_type,onboarded_date,methods_supported,fee_pct,fee_fixed_eur
+psp_alpha,external_acquirer,2018-01-01,card;wallet,1.2,0.1
+psp_beta,external_acquirer,2019-06-01,card;wallet;bank_transfer,1.05,0.12
+psp_gamma,external_acquirer,2024-02-01,card;wallet;bnpl,1.35,0.08
+internal_ledger,internal,2018-01-01,balance,0.0,0.0
