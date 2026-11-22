@@ -403,3 +403,9 @@ All remaining tables are in the `Data/` folder. The full dataset is available up
 <h3>Author</h3>
 
 <strong>Algirdas Vailionis</strong>, Data Scientist · <a href="https://www.linkedin.com/in/algirdas-vailionis">LinkedIn</a> · <a href="mailto:algirdas.vailionis@gmail.com">Email</a>
+
+---
+
+> **Data disclaimer:** All data in this project is synthetic and was generated for portfolio and learning purposes. Company names, customers, transactions and results are simulated and do not represent any real organisation or individuals.
+
+---
